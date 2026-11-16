@@ -1,61 +1,64 @@
 # codex-imagenes
 
-Genera imágenes con **tu suscripción de ChatGPT**, a través de Codex CLI y su herramienta integrada `image_gen`. Nunca usa la API ni una clave.
+Generates images with **your ChatGPT subscription**, through Codex CLI and its built-in `image_gen` tool. It never uses the API or a key. (*Imágenes* is Spanish for "images".)
 
-## Qué hace
-Registra la herramienta `generar` (`mcp__codex-imagenes__generar`). Claude la llama con:
-- **`encargo`:** lo que debe mostrar la imagen;
-- **`destino`:** un `.png`;
-- **`referencias`** (opcional): hasta 8 imágenes, para mantener un personaje, un producto o un estilo;
-- **`tamano`** (opcional): `1536x1024`, `1024x1536` o `1024x1024`;
-- **`sobrescribir`** (opcional).
+## What it does
+It registers the tool `generate` (`mcp__codex-imagenes__generate`). Claude calls it with:
+- **`prompt`:** what the image must show;
+- **`output`:** a `.png`;
+- **`references`** (optional): up to 8 images, to keep a character, a product or a style;
+- **`size`** (optional): `1536x1024`, `1024x1536` or `1024x1024`;
+- **`overwrite`** (optional).
 
-**Cómo llama a Codex:**
-- `codex exec --ephemeral --json -s read-only`, con el encargo por la entrada estándar. Así no guarda la sesión y no puede escribir nada;
-- la respuesta final, con forma fija (`--output-schema`);
-- `OPENAI_API_KEY` vacía en el proceso hijo.
+**How it calls Codex:**
+- `codex exec --ephemeral --json -s read-only`, with the prompt on standard input. So it saves no session and cannot write anything;
+- the final answer has a fixed shape (`--output-schema`);
+- `OPENAI_API_KEY` is blanked in the child process.
 
-Antes de la primera llamada comprueba que `codex login status` diga «Logged in using ChatGPT». Si Codex tiene sesión con una clave de API, se niega a seguir.
+Before the first call it checks that `codex login status` says «Logged in using ChatGPT». If Codex is signed in with an API key, it refuses to go on.
 
-**Al terminar:**
-- mueve el PNG de `~/.codex/generated_images/<hilo>/` al destino;
-- borra esa carpeta y la de trabajo;
-- devuelve un JSON: `ruta`, `ancho`, `alto`, `bytes`, `sha256`, `segundos`, la `nota` de Codex, `hilo` y `tokens`.
+**When it finishes:**
+- it moves the PNG from `~/.codex/generated_images/<thread>/` to the output;
+- it removes that folder and the work folder;
+- it returns JSON: `path`, `width`, `height`, `bytes`, `sha256`, `seconds`, Codex's `note`, `thread` and `tokens`.
 
-**Mientras genera:** la línea de estado dice cuántos segundos lleva. Al acabar sale un aviso breve y, si tardó más de un minuto, una notificación del sistema.
+**While it generates:** the status line shows how many seconds it has taken. When done, a short toast appears and, if it took more than a minute, a system notification.
 
-## Instalación
-En una sesión de Claude Code en la terminal:
+## Install
+In a Claude Code session in the terminal:
 
 ```
 /plugin install codex-imagenes --marketplace mendezorlando/codex-imagenes
 ```
 
-Desde la terminal del sistema:
+From a shell:
 
 ```bash
 claude plugin install codex-imagenes --marketplace mendezorlando/codex-imagenes
 ```
 
-En la app de escritorio: + junto al cuadro del prompt → Plugins → Add marketplace con `mendezorlando/codex-imagenes` → Add plugin.
+In the desktop app: + next to the prompt box → Plugins → Add marketplace with `mendezorlando/codex-imagenes` → Add plugin.
 
-Desde una copia local, la carpeta es su propio marketplace. Tras editarla, `/reload-plugins`:
+From a local copy, the folder is its own marketplace. After editing it, `/reload-plugins`:
 
 ```bash
-claude plugin marketplace add <carpeta>
+claude plugin marketplace add <folder>
 ```
 
 ```bash
 claude plugin install codex-imagenes@codex-imagenes --scope user
 ```
 
-Para comprobarlo: `claude plugin validate <carpeta>` y `claude plugin test <carpeta>`.
+To check it: `claude plugin validate <folder>` and `claude plugin test <folder>`.
 
-## Requisitos
-- Codex CLI en el `PATH` o en `~/.local/bin`, con la generación de imágenes activada (`codex features list` → `image_generation`).
-- La sesión iniciada con tu cuenta de ChatGPT: `codex login`.
-- macOS o Linux. Usa `file`, `shasum` o `sha256sum`, `mv`, `mkdir`, `rmdir` y `rm`.
+## Requirements
+- Codex CLI on the `PATH` or in `~/.local/bin`, with image generation enabled (`codex features list` → `image_generation`).
+- Signed in with your ChatGPT account: `codex login`.
+- macOS or Linux. It uses `file`, `shasum` or `sha256sum`, `mv`, `mkdir`, `rmdir` and `rm`.
 
-## Límites
-- Cuenta contra los límites de imágenes de tu plan de ChatGPT, y cada imagen tarda de 1 a 3 minutos.
-- Si interrumpes la llamada, Codex sigue hasta acabar o hasta su límite de 10 minutos.
+## Limits
+- It counts against your ChatGPT plan's image limits, and each image takes 1 to 3 minutes.
+- If you interrupt the call, Codex keeps going until it finishes or hits its 10-minute limit.
+
+## License
+MIT.

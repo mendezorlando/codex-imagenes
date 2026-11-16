@@ -3,15 +3,15 @@ import type { EngineInterface, Register } from 'claude-code'
 // Generates one image with the person's ChatGPT subscription through Codex CLI:
 // `codex exec` ephemeral (no session saved), read-only, with the built-in
 // image_gen tool and OPENAI_API_KEY blanked, so it never bills the API. The
-// image lands in ~/.codex/generated_images/<thread>/; it is moved to `destino`
+// image lands in ~/.codex/generated_images/<thread>/; it is moved to `output`
 // and that folder and the work folder are removed (the origin is left clean).
 
 type $ = EngineInterface
-type Input = { encargo?: unknown; destino?: unknown; referencias?: unknown; tamano?: unknown; sobrescribir?: unknown }
+type Input = { prompt?: unknown; output?: unknown; references?: unknown; size?: unknown; overwrite?: unknown }
 type CodexEvent = { type?: string; thread_id?: string; usage?: { input_tokens?: number; output_tokens?: number }; message?: string; error?: { message?: string } }
 type Outcome = { deny: string } | { result: string }
 
-const TOOL = 'generar'
+const TOOL = 'generate'
 const SIZES = ['1536x1024', '1024x1536', '1024x1024']
 const REFERENCE = /\.(png|jpe?g|webp)$/i
 const SCHEMA = JSON.stringify({
@@ -22,36 +22,36 @@ const SCHEMA = JSON.stringify({
 })
 
 const DESCRIPTION =
-  'Genera UNA imagen raster (foto, ilustración, textura, maqueta) con la suscripción de ChatGPT de la persona, ' +
-  'a través de Codex CLI y su herramienta image_gen integrada: nunca con la API ni con una clave. Tarda de 1 a 3 minutos. ' +
-  'Escribe un PNG en `destino` y devuelve JSON con la ruta, el tamaño, el sha256, los segundos y una nota de Codex; ' +
-  'el origen (~/.codex/generated_images y la carpeta de trabajo) queda limpio y Codex no guarda la sesión. ' +
-  'Para mantener un personaje, un producto o un estilo, pasa sus imágenes en `referencias`. ' +
-  'Enséñale la imagen a la persona antes de usarla en su producto.'
+  'Generates ONE raster image (photo, illustration, texture, mockup) with the person\'s ChatGPT subscription, ' +
+  'through Codex CLI and its built-in image_gen tool: never with the API or a key. Takes 1 to 3 minutes. ' +
+  'Writes a PNG to `output` and returns JSON with the path, size, sha256, seconds and a note from Codex; ' +
+  'the origin (~/.codex/generated_images and the work folder) is left clean and Codex saves no session. ' +
+  'To keep a character, a product or a style, pass its images in `references`. ' +
+  'Show the image to the person before using it in their product.'
 
 const INPUT_SCHEMA = {
   type: 'object',
-  required: ['encargo', 'destino'],
+  required: ['prompt', 'output'],
   properties: {
-    encargo: { type: 'string', description: 'Lo que debe mostrar: sujeto, encuadre, luz, paleta y lo que no debe aparecer.' },
-    destino: { type: 'string', description: 'Ruta del PNG (absoluta, con ~/ o relativa al directorio de la sesión); termina en .png.' },
-    referencias: { type: 'array', items: { type: 'string' }, maxItems: 8, description: 'Imágenes png, jpg o webp de referencia.' },
-    tamano: { type: 'string', enum: SIZES, description: 'Por defecto, 1536x1024 (horizontal).' },
-    sobrescribir: { type: 'boolean', description: 'Reemplaza el destino si ya existe; por defecto, false.' },
+    prompt: { type: 'string', description: 'What it must show: subject, framing, light, palette and what must not appear.' },
+    output: { type: 'string', description: 'Path of the PNG (absolute, with ~/ or relative to the session directory); ends in .png.' },
+    references: { type: 'array', items: { type: 'string' }, maxItems: 8, description: 'Reference images: png, jpg or webp.' },
+    size: { type: 'string', enum: SIZES, description: 'Defaults to 1536x1024 (landscape).' },
+    overwrite: { type: 'boolean', description: 'Replaces the output if it exists; defaults to false.' },
   },
 }
 
-const brief = (encargo: string, size: string, hasReferences: boolean) =>
+const brief = (prompt: string, size: string, hasReferences: boolean) =>
   [
-    'Genera UNA imagen con tu herramienta integrada de generación de imágenes (image_gen).',
-    'No ejecutes comandos, no escribas código, no uses scripts ni ninguna API, y no copies ni muevas archivos: quien te llama recoge la imagen.',
-    `Tamaño: ${size}.`,
-    ...(hasReferences ? ['Las imágenes adjuntas son referencias: conserva la identidad, los rasgos y el estilo que muestran.'] : []),
+    'Generate ONE image with your built-in image generation tool (image_gen).',
+    'Do not run commands, write code, use scripts or any API, and do not copy or move files: the caller collects the image.',
+    `Size: ${size}.`,
+    ...(hasReferences ? ['The attached images are references: keep the identity, features and style they show.'] : []),
     '',
-    'Encargo:',
-    encargo,
+    'Brief:',
+    prompt,
     '',
-    'Responde solo con el JSON del esquema: status "generated" si la imagen salió, "refused" si no puedes generarla y "failed" si algo falló; en note, una frase con lo que generaste o por qué no.',
+    'Reply only with the JSON of the schema: status "generated" if the image came out, "refused" if you cannot generate it and "failed" if something went wrong; in note, one sentence on what you generated or why not.',
   ].join('\n')
 
 const join = (dir: string, name: string) => `${dir.replace(/\/+$/, '')}/${name}`
@@ -84,41 +84,41 @@ async function loginProblem($: $, codex: string) {
     return undefined
   }
   return /api key/i.test(text)
-    ? 'Codex tiene sesión con una clave de API y este plugin solo usa la suscripción: ejecuta `codex logout` y `codex login` con tu cuenta de ChatGPT.'
-    : `Codex no tiene sesión iniciada con ChatGPT (${tail(text, 200) || 'sin respuesta'}): ejecuta \`codex login\`.`
+    ? 'Codex is signed in with an API key and this plugin only uses the subscription: run `codex logout` and `codex login` with your ChatGPT account.'
+    : `Codex is not signed in with ChatGPT (${tail(text, 200) || 'no answer'}): run \`codex login\`.`
 }
 
 async function generate($: $, input: Input): Promise<Outcome> {
   const fail = (text: string): Outcome => ({ deny: `codex-imagenes: ${text}` })
 
-  const encargo = typeof input.encargo === 'string' ? input.encargo.trim() : ''
-  if (encargo === '') return fail('falta el encargo.')
-  if (encargo.length > 8000) return fail('el encargo pasa de 8000 caracteres.')
-  if (typeof input.destino !== 'string' || !/\.png$/i.test(input.destino)) return fail('`destino` debe ser una ruta que termine en .png.')
-  const size = input.tamano ?? SIZES[0]
-  if (typeof size !== 'string' || !SIZES.includes(size)) return fail(`\`tamano\` debe ser ${SIZES.join(', ')}.`)
-  const listed = input.referencias ?? []
+  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : ''
+  if (prompt === '') return fail('the prompt is missing.')
+  if (prompt.length > 8000) return fail('the prompt is longer than 8000 characters.')
+  if (typeof input.output !== 'string' || !/\.png$/i.test(input.output)) return fail('`output` must be a path ending in .png.')
+  const size = input.size ?? SIZES[0]
+  if (typeof size !== 'string' || !SIZES.includes(size)) return fail(`\`size\` must be ${SIZES.join(', ')}.`)
+  const listed = input.references ?? []
   if (!Array.isArray(listed) || listed.length > 8 || listed.some(item => typeof item !== 'string')) {
-    return fail('`referencias` debe ser una lista de hasta 8 rutas.')
+    return fail('`references` must be a list of up to 8 paths.')
   }
 
   const home = (await $.env.get('HOME')) ?? ''
   const cwd = await $.session.cwd()
   const absolute = (path: string) => (path.startsWith('/') ? path : path.startsWith('~/') ? home + path.slice(1) : join(cwd, path))
-  const destino = absolute(input.destino)
-  if (input.sobrescribir !== true && (await $.fs.exists(destino))) {
-    return fail(`${destino} ya existe; pasa \`sobrescribir: true\` para reemplazarlo.`)
+  const output = absolute(input.output)
+  if (input.overwrite !== true && (await $.fs.exists(output))) {
+    return fail(`${output} already exists; pass \`overwrite: true\` to replace it.`)
   }
   const references: string[] = []
   for (const item of listed as string[]) {
     const path = absolute(item)
     const stat = await $.fs.stat(path).catch(() => undefined)
-    if (stat?.kind !== 'file' || !REFERENCE.test(path)) return fail(`la referencia ${path} no es un png, jpg o webp que exista.`)
+    if (stat?.kind !== 'file' || !REFERENCE.test(path)) return fail(`the reference ${path} is not an existing png, jpg or webp.`)
     references.push(path)
   }
 
   const codex = await findCodex($)
-  if (codex === undefined) return fail('no encuentro Codex CLI en el PATH ni en ~/.local/bin: instálalo e inicia sesión con `codex login`.')
+  if (codex === undefined) return fail('Codex CLI is not on the PATH or in ~/.local/bin: install it and sign in with `codex login`.')
   const problem = await loginProblem($, codex)
   if (problem !== undefined) return fail(problem)
 
@@ -127,10 +127,10 @@ async function generate($: $, input: Input): Promise<Outcome> {
   await $.fs.write(join(work, 'schema.json'), SCHEMA)
   const removeWork = () => $.process.run(['rm', '-rf', work]).catch(() => undefined)
 
-  const label = base(destino)
+  const label = base(output)
   const startedAt = Date.now()
   const elapsed = () => Math.round((Date.now() - startedAt) / 1000)
-  const tick = () => $.ui.status(`Codex genera ${label}… ${elapsed()} s`)
+  const tick = () => $.ui.status(`Codex is generating ${label}… ${elapsed()} s`)
   tick()
   const timer = $.clock.every(5000, tick)
   let run: Awaited<ReturnType<$['process']['run']>> | undefined
@@ -141,7 +141,7 @@ async function generate($: $, input: Input): Promise<Outcome> {
       [codex, 'exec', '--skip-git-repo-check', '--ephemeral', '--json', '-s', 'read-only', '-C', work,
         '--output-schema', join(work, 'schema.json'), '-o', join(work, 'last.json'),
         ...references.flatMap(path => ['-i', path])],
-      { stdin: brief(encargo, size, references.length > 0), timeoutMs: 600_000, env: { OPENAI_API_KEY: '' } },
+      { stdin: brief(prompt, size, references.length > 0), timeoutMs: 600_000, env: { OPENAI_API_KEY: '' } },
     )
   } catch (error) {
     crash = String(error)
@@ -174,50 +174,50 @@ async function generate($: $, input: Input): Promise<Outcome> {
     await removeWork()
     const why = [
       answer?.note && `Codex: ${answer.status ?? '?'}, ${answer.note}`,
-      failed && `evento ${failed.type}: ${failed.error?.message ?? failed.message ?? ''}`,
-      crash && `no terminó: ${crash}`,
-      run && run.exitCode !== 0 && `salida ${run.exitCode}: ${tail(run.stderr)}`,
+      failed && `event ${failed.type}: ${failed.error?.message ?? failed.message ?? ''}`,
+      crash && `did not finish: ${crash}`,
+      run && run.exitCode !== 0 && `exit ${run.exitCode}: ${tail(run.stderr)}`,
     ].filter(Boolean).join(' · ')
-    return fail(`no salió ninguna imagen (${elapsed()} s). ${why || 'Sin más detalle.'}`)
+    return fail(`no image came out (${elapsed()} s). ${why || 'No more detail.'}`)
   }
 
-  const made = await $.process.run(['mkdir', '-p', parent(destino)])
-  if (made.exitCode !== 0) return fail(`no pude crear ${parent(destino)}: ${tail(made.stderr, 300)}. La imagen sigue en ${origin}.`)
-  const extra: string[] = []
+  const made = await $.process.run(['mkdir', '-p', parent(output)])
+  if (made.exitCode !== 0) return fail(`could not create ${parent(output)}: ${tail(made.stderr, 300)}. The image is still in ${origin}.`)
+  const others: string[] = []
   for (const [index, image] of images.entries()) {
-    const target = index === 0 ? destino : destino.replace(/\.png$/i, `-${index + 1}.png`)
+    const target = index === 0 ? output : output.replace(/\.png$/i, `-${index + 1}.png`)
     const moved = await $.process.run(['mv', '-f', join(origin!, image.name), target])
-    if (moved.exitCode !== 0) return fail(`no pude mover ${image.name} a ${target}: ${tail(moved.stderr, 300)}. Sigue en ${origin}.`)
-    if (index > 0) extra.push(target)
+    if (moved.exitCode !== 0) return fail(`could not move ${image.name} to ${target}: ${tail(moved.stderr, 300)}. It is still in ${origin}.`)
+    if (index > 0) others.push(target)
   }
   await $.process.run(['rmdir', origin!]).catch(() => undefined)
   await removeWork()
 
-  const described = await $.process.run(['file', '-b', destino]).catch(() => undefined)
+  const described = await $.process.run(['file', '-b', output]).catch(() => undefined)
   const [, width, height] = /(\d+) x (\d+)/.exec(described?.stdout ?? '') ?? []
-  const hashed = await $.process.run(['shasum', '-a', '256', destino])
-    .catch(() => $.process.run(['sha256sum', destino]))
+  const hashed = await $.process.run(['shasum', '-a', '256', output])
+    .catch(() => $.process.run(['sha256sum', output]))
     .catch(() => undefined)
-  const bytes = await $.fs.stat(destino).then(stat => stat.size).catch(() => undefined)
+  const bytes = await $.fs.stat(output).then(stat => stat.size).catch(() => undefined)
   const seconds = elapsed()
 
-  $.ui.toast(`${label}: lista en ${seconds} s`)
-  if (seconds >= 60) void $.ui.notify(`${label} está lista (${seconds} s).`, { title: 'Codex · imágenes' }).catch(() => undefined)
+  $.ui.toast(`${label}: ready in ${seconds} s`)
+  if (seconds >= 60) void $.ui.notify(`${label} is ready (${seconds} s).`, { title: 'Codex · images' }).catch(() => undefined)
 
   return {
     result: JSON.stringify({
-      estado: answer?.status === 'generated' || answer === undefined ? 'generada' : answer.status,
-      ruta: destino,
-      ancho: width === undefined ? undefined : Number(width),
-      alto: height === undefined ? undefined : Number(height),
+      status: answer?.status ?? 'generated',
+      path: output,
+      width: width === undefined ? undefined : Number(width),
+      height: height === undefined ? undefined : Number(height),
       bytes,
       sha256: hashed?.stdout.split(/\s/)[0] || undefined,
-      segundos: seconds,
-      nota: answer?.note,
-      hilo: thread,
-      tokens: usage && { entrada: usage.input_tokens, salida: usage.output_tokens },
-      otras: extra.length > 0 ? extra : undefined,
-      origen: 'limpio',
+      seconds,
+      note: answer?.note,
+      thread,
+      tokens: usage && { input: usage.input_tokens, output: usage.output_tokens },
+      others: others.length > 0 ? others : undefined,
+      origin: 'clean',
     }),
   }
 }
@@ -228,6 +228,6 @@ export const register: Register = on => {
     await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA })
     return started
   })
-  on('tool.call', { tool: 'mcp__codex-imagenes__generar' }, ($, e) => generate($, e as unknown as Input))
-    .catch(($, e, next) => ({ deny: `codex-imagenes: falló (${next.error.kind}: ${(next.error.message ?? '').slice(0, 300)}).` }))
+  on('tool.call', { tool: 'mcp__codex-imagenes__generate' }, ($, e) => generate($, e as unknown as Input))
+    .catch(($, e, next) => ({ deny: `codex-imagenes: failed (${next.error.kind}: ${(next.error.message ?? '').slice(0, 300)}).` }))
 }
