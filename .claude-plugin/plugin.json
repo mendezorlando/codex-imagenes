@@ -1,0 +1,8 @@
+{
+  "name": "codex-imagenes",
+  "version": "0.1.0",
+  "description": "Genera imágenes con la suscripción de ChatGPT a través de Codex CLI (image_gen integrado, sin API), con resultado estructurado y limpieza del origen.",
+  "author": { "name": "mendezorlando" },
+  "repository": "https://github.com/mendezorlando/codex-imagenes",
+  "license": "MIT"
+}
