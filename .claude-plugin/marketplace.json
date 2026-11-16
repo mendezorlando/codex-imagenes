@@ -1,5 +1,5 @@
 {
-  "name": "plugins-locales",
+  "name": "codex-imagenes",
   "owner": { "name": "mendezorlando" },
   "description": "Imágenes con la suscripción de ChatGPT a través de Codex CLI.",
   "plugins": [{ "name": "codex-imagenes", "source": "./" }]

@@ -46,7 +46,7 @@ claude plugin marketplace add <carpeta>
 ```
 
 ```bash
-claude plugin install codex-imagenes@plugins-locales --scope user
+claude plugin install codex-imagenes@codex-imagenes --scope user
 ```
 
 Para comprobarlo: `claude plugin validate <carpeta>` y `claude plugin test <carpeta>`.
